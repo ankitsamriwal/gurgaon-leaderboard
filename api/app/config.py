@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
 
+    turnstile_secret_key: str = ""
+
     # Comma-separated list. Defaults to the Vite dev server origin so
     # `npm run dev` works against a local API out of the box; production
     # must set this to the real deployed frontend origin(s).

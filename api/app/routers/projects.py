@@ -10,6 +10,7 @@ from app.db import get_db
 from app.deps import CurrentUser, get_current_user
 from app.models import Project, ProjectClaim
 from app.rate_limit import rate_limit
+from app.services.captcha_provider import get_captcha_provider
 from app.services.projects import create_project, get_leaderboard, get_project_detail
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -22,6 +23,7 @@ class CreateProjectBody(BaseModel):
     rera_number: str
     project_url: str | None = None
     opening_bid_paise: int | None = None  # accepted per docs/02; no separate handling needed yet
+    captcha_token: str | None = None
 
 
 class CreateProjectResponse(BaseModel):
@@ -36,6 +38,11 @@ async def submit_project(
     user: Annotated[CurrentUser, Depends(get_current_user)],
 ):
     await rate_limit(f"project-submit:{user.id}", limit=3, window_seconds=86400)
+
+    if not await get_captcha_provider().verify(body.captcha_token):
+        raise HTTPException(
+            status_code=400, detail={"error": {"code": "CAPTCHA_FAILED", "message": "CAPTCHA verification failed"}}
+        )
 
     project = await create_project(
         db,

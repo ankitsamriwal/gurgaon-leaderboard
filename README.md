@@ -247,9 +247,44 @@ order and phase gates.
   gap noted in Phase 3). What's implemented and tested is this build's
   actual release gate: ledger-vs-cache consistency.
 
-Everything after Phase 6 (security/anti-fraud pass, legal/compliance UI,
-launch readiness) is **not yet built** — follow the phased plan and do not
-skip ahead, per the non-negotiables in `docs/00-overview.md`.
+**Phase 7 — Security & anti-fraud pass** (`docs/07-implementation-plan.md`)
+
+- [x] Completed the `docs/05` rate-limit table: added the per-IP limits
+      that were missing (10/hour on `/auth/otp/request`, 50/hour on
+      `/payments/intent`) alongside the per-phone/per-user ones already
+      in place since Phases 2/3.
+- [x] CAPTCHA on `/submit` and `/auth/otp/request`
+      (`app/services/captcha_provider.py`) — same pluggable,
+      fail-loudly-without-real-credentials pattern as the OTP provider:
+      `NoopCaptchaProvider` passes everything outside production;
+      `get_captcha_provider()` refuses to run in production without a
+      real `TURNSTILE_SECRET_KEY`. No real Cloudflare Turnstile/hCaptcha
+      site key exists for this build, so there's no widget wired into the
+      frontend forms yet — the backend contract (verify a `captcha_token`,
+      `CAPTCHA_FAILED` error code, hard-fail in prod) is what's
+      implemented and tested; adding the real widget is a frontend-only
+      follow-up once real site/secret keys exist.
+- [x] Audit logging reviewed: every admin write action
+      (approve/reject/verify-rera/claim-approve/claim-reject/bid-reverse)
+      already logs to `admin_actions` (Phases 4/6) — no gaps found.
+- [x] Wash-trading flag queries (`app/services/anti_fraud.py`,
+      `GET /admin/anti-fraud/flags`) — flags only, never auto-blocks, per
+      docs/05: repeated same-user bidding on one project in a tight
+      window, bid clusters from newly-created accounts, and bid-velocity
+      spikes against a project's own trailing baseline.
+- [x] **Exit criterion met**: a script exceeding each configured rate
+      limit gets a 429 with `RATE_LIMITED`, verified against real
+      Postgres + Redis for the OTP-per-IP, payments-intent-per-user, and
+      (from earlier phases) OTP-per-phone and project-submission limits.
+- **Known gap, by design**: `docs/05`'s "same payment method fingerprint"
+  wash-trading signal needs card/method data only a real Razorpay account
+  provides (same root cause as the Phase 3/6 Razorpay gaps) — not
+  implemented. The three heuristics that use data this system actually
+  has (repeated bidder, new-account clustering, velocity spike) are.
+
+Everything after Phase 7 (legal/compliance UI, launch readiness) is **not
+yet built** — follow the phased plan and do not skip ahead, per the
+non-negotiables in `docs/00-overview.md`.
 
 ## Local development
 

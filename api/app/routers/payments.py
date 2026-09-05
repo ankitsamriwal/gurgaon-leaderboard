@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -58,12 +58,15 @@ def _intent_response(intent: PaymentIntent) -> CreateIntentResponse:
 @router.post("/intent", status_code=201, response_model=CreateIntentResponse)
 async def create_payment_intent(
     body: CreateIntentBody,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[CurrentUser, Depends(get_current_user)],
     razorpay: Annotated[RazorpayClient, Depends(get_razorpay_client)],
 ):
     """Client calls this first, before showing Razorpay Checkout (docs/02)."""
     await rate_limit(f"payments-intent-user:{user.id}", limit=20, window_seconds=3600)
+    client_ip = request.client.host if request.client else "unknown"
+    await rate_limit(f"payments-intent-ip:{client_ip}", limit=50, window_seconds=3600)
 
     if body.amount_paise <= 0:
         raise HTTPException(

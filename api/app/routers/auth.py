@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import get_db
 from app.rate_limit import rate_limit
 from app.services import auth as auth_service
+from app.services.captcha_provider import get_captcha_provider
 from app.services.otp_provider import get_otp_provider
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class OtpRequestBody(BaseModel):
     phone: str | None = None
     email: str | None = None
+    captcha_token: str | None = None
 
 
 class OtpRequestResponse(BaseModel):
@@ -26,9 +28,16 @@ class OtpRequestResponse(BaseModel):
 
 
 @router.post("/otp/request", status_code=202, response_model=OtpRequestResponse)
-async def otp_request(body: OtpRequestBody, db: Annotated[AsyncSession, Depends(get_db)]):
+async def otp_request(body: OtpRequestBody, request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
     key_suffix = body.phone or body.email or "unknown"
     await rate_limit(f"otp-request-contact:{key_suffix}", limit=5, window_seconds=3600)
+    client_ip = request.client.host if request.client else "unknown"
+    await rate_limit(f"otp-request-ip:{client_ip}", limit=10, window_seconds=3600)
+
+    if not await get_captcha_provider().verify(body.captcha_token):
+        raise HTTPException(
+            status_code=400, detail={"error": {"code": "CAPTCHA_FAILED", "message": "CAPTCHA verification failed"}}
+        )
 
     request_id, otp = await auth_service.request_otp(db, phone=body.phone, email=body.email)
     await get_otp_provider().send(phone=body.phone, email=body.email, otp=otp)

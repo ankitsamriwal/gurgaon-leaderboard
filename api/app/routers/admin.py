@@ -11,6 +11,7 @@ from app.db import get_db
 from app.deps import CurrentUser, require_role
 from app.models import AdminAction, Bid, Project, ProjectClaim, ReconciliationReport, User
 from app.redis_client import redis_client
+from app.services.anti_fraud import compute_anti_fraud_flags
 from app.services.bids import reverse_bid
 from app.services.projects import LEADERBOARD_CACHE_KEY, publish_leaderboard_update
 from app.services.reconciliation import run_reconciliation
@@ -254,3 +255,13 @@ async def trigger_reconciliation(
     """
     report = await run_reconciliation(db)
     return {"report": report}
+
+
+@router.get("/anti-fraud/flags")
+async def anti_fraud_flags(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """Wash-trading heuristics for admin review (docs/05) — flags, never
+    auto-blocks."""
+    return await compute_anti_fraud_flags(db)
