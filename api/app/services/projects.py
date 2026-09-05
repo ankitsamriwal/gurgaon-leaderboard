@@ -13,6 +13,7 @@ from app.validators import is_valid_rera_number_format
 
 LEADERBOARD_CACHE_KEY = "leaderboard:v1"
 LEADERBOARD_CACHE_TTL_SECONDS = 7
+LEADERBOARD_WS_CHANNEL = "leaderboard:updates"
 
 
 def _error(status_code: int, code: str, message: str):
@@ -66,6 +67,21 @@ async def get_leaderboard(session: AsyncSession, *, use_cache: bool = True) -> d
     return result
 
 
+async def publish_leaderboard_update(session: AsyncSession) -> dict:
+    """Recompute the leaderboard, refresh the read cache, and push it to
+    `/ws/leaderboard` subscribers (docs/02: "server pushes a diff whenever
+    the top-5 ordering or any project's total changes"). Called by whatever
+    just landed a real bid (the webhook handler, the mock-payment endpoint)
+    — not by app/services/bids.py itself, to keep that already
+    load-tested transaction untouched.
+    """
+    payload = await _compute_leaderboard(session)
+    encoded = json.dumps(payload)
+    await redis_client.set(LEADERBOARD_CACHE_KEY, encoded, ex=LEADERBOARD_CACHE_TTL_SECONDS)
+    await redis_client.publish(LEADERBOARD_WS_CHANNEL, encoded)
+    return payload
+
+
 async def _compute_leaderboard(session: AsyncSession) -> dict:
     rankings_rows = (
         await session.execute(
@@ -115,7 +131,7 @@ async def _compute_leaderboard(session: AsyncSession) -> dict:
         )
     ).first()
     if row is not None:
-        daily_topper = {"project_id": str(row.project_id), "last_24h_paise": row.total}
+        daily_topper = {"project_id": str(row.project_id), "last_24h_paise": int(row.total)}
 
     return {"leader": leader, "daily_topper": daily_topper, "rankings": rankings}
 

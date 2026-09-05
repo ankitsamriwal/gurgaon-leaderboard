@@ -1,7 +1,12 @@
-# Frontend (not yet scaffolded)
+# Frontend
 
-Per `docs/07-implementation-plan.md`, the React + Vite + TypeScript frontend
-is built in **Phase 5**, after the ledger/transaction logic (Phase 1), auth
-(Phase 2), and Razorpay integration (Phase 3) are working and tested. See
-`docs/04-frontend-spec.md` for the page/component/state design to build
-against when that phase starts.
+React + Vite + TypeScript app per `docs/04-frontend-spec.md`. React Query
+for server state, Zustand for the auth session.
+
+```bash
+npm install
+VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+See the top-level [`../README.md`](../README.md) for the full local dev
+setup (API, Postgres, Redis) and the current build status.

@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
 
+    # Comma-separated list. Defaults to the Vite dev server origin so
+    # `npm run dev` works against a local API out of the box; production
+    # must set this to the real deployed frontend origin(s).
+    cors_allowed_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

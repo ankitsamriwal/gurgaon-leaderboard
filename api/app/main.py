@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
@@ -7,10 +8,19 @@ from app.routers.auth import router as auth_router
 from app.routers.payments import router as payments_router
 from app.routers.projects import router as projects_router
 from app.routers.webhooks import router as webhooks_router
+from app.routers.ws import router as ws_router
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Gurgaon Leaderboard API")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
@@ -35,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks_router)
     app.include_router(projects_router)
     app.include_router(admin_router)
+    app.include_router(ws_router)
 
     if not settings.is_production:
         from app.routers.internal import router as internal_router

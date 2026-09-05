@@ -1,0 +1,146 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: canvas;
+  color: canvastext;
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.nav {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.leaderboard-meta {
+  opacity: 0.8;
+  font-size: 0.9rem;
+}
+
+.empty-state {
+  text-align: center;
+  opacity: 0.6;
+}
+
+.row-live {
+  background: color-mix(in srgb, gold 15%, transparent);
+  transition: background 1.5s ease-out;
+}
+
+.live-badge {
+  color: #2ecc71;
+  margin-left: 0.4rem;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-badge {
+    animation: none;
+  }
+  .row-live {
+    transition: none;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  margin-right: 0.4rem;
+}
+
+.badge-verified {
+  background: color-mix(in srgb, #2ecc71 25%, transparent);
+}
+
+.badge-pending {
+  background: color-mix(in srgb, #999 25%, transparent);
+}
+
+.disclaimer {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  margin-top: 2rem;
+  padding-top: 1rem;
+}
+
+.dev-hint {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: canvas;
+  color: canvastext;
+  padding: 1.5rem;
+  border-radius: 8px;
+  max-width: 400px;
+  width: 90%;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+form label {
+  display: block;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+form input {
+  width: 100%;
+  padding: 0.4rem;
+  box-sizing: border-box;
+}
+
+.form-error {
+  color: #e74c3c;
+}

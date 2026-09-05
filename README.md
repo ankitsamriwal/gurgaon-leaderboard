@@ -161,9 +161,58 @@ order and phase gates.
   builds; a real deployment needs a manual DB action or a separate
   invite process — an operational decision, not an API design one.
 
-Everything after Phase 4 (frontend, reconciliation, security hardening,
-legal/compliance UI) is **not yet built** — follow the phased plan and do
-not skip ahead, per the non-negotiables in `docs/00-overview.md`.
+**Phase 5 — Leaderboard & real-time frontend** (`docs/07-implementation-plan.md`)
+
+- [x] React + Vite + TypeScript app (`frontend/`) per `docs/04-frontend-spec.md`:
+      leaderboard, project detail + bid modal, submit form, OTP login,
+      a minimal dashboard, and an admin moderation/claims UI. React Query
+      for server state, Zustand for the auth session, no Redux.
+- [x] `WS /ws/leaderboard` (`app/routers/ws.py`) — broadcasts via Redis
+      pub/sub (not an in-process socket list), so it stays correct across
+      multiple worker processes in production. Triggered by
+      `publish_leaderboard_update()` after a real settlement (the webhook
+      handler, the mock-payment endpoint) — Phase 1's already-tested
+      `accept_bid()` transaction itself is untouched.
+- [x] `BidModal` calls `POST /payments/intent` and opens real Razorpay
+      Checkout only when both `window.Razorpay` and a configured
+      `razorpay_key_id` are present (checked via a new `GET /payments/config`
+      endpoint *before* attempting anything); otherwise it settles via
+      `POST /payments/mock` directly. Never optimistically renders a new
+      total before settlement confirms it (docs/04).
+- [x] **Exit criterion met — verified in an actual browser, not just unit
+      tests**: ran the full app end to end (Chromium via Playwright)
+      against the real API, Postgres, and Redis: OTP login → submit a
+      project → admin-approve it → place a bid → leaderboard updates.
+      Opened **two separate browser tabs**, placed a bid from one, and
+      watched the leaderboard update live in the other with no page
+      refresh, over the real `/ws/leaderboard` socket.
+- **Two real bugs this testing caught and fixed** (not merely observed —
+  both are hard requirements this build now meets):
+  1. **No CORS middleware at all.** Every cross-origin frontend call was
+     silently blocked by the browser. Fixed with `CORSMiddleware`,
+     configurable via `CORS_ALLOWED_ORIGINS` (defaults to the Vite dev
+     origin).
+  2. **The demo payment path was unreachable without real Razorpay
+     credentials.** `POST /payments/mock` required an `intent_id` that
+     could only come from `POST /payments/intent` — which hard-fails
+     without configured Razorpay keys. That made the credential-free demo
+     path impossible to reach in exactly the environment it exists for.
+     Fixed by making `/payments/mock` fully self-contained (it settles
+     directly via `accept_bid()`, same as the webhook) and adding
+     `GET /payments/config` so the frontend decides which path to use
+     upfront instead of discovering it by provoking a failure.
+  3. **`daily_topper`'s Postgres `SUM()` returned a `Decimal`**, which
+     isn't JSON-serializable — `GET /projects/leaderboard` and the WS push
+     would have thrown a 500 the first time any project had a bid in the
+     last 24h. Fixed by casting to `int`.
+- **Known gap**: `/dashboard` is a stub — `docs/02-api-spec.md` has no "my
+  submissions" or "my bids" endpoint to back the page `docs/04` describes.
+  Flagged in the UI itself rather than faked.
+
+Everything after Phase 5 (nightly reconciliation, admin panel polish,
+security hardening, legal/compliance UI) is **not yet built** — follow the
+phased plan and do not skip ahead, per the non-negotiables in
+`docs/00-overview.md`.
 
 ## Local development
 
@@ -195,11 +244,25 @@ ENVIRONMENT=local \
 pytest
 ```
 
+To run the frontend against a local API:
+
+```bash
+cd frontend
+npm install
+VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+The API's `CORS_ALLOWED_ORIGINS` defaults to `http://localhost:5173` (Vite's
+default port) so this works without extra config. Set a real
+`RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` on the API to exercise real Razorpay
+Checkout from `BidModal`; without them it automatically falls back to the
+`POST /payments/mock` demo path.
+
 ## Layout
 
 ```
 api/        FastAPI service, SQLAlchemy models, Alembic migrations
-frontend/   React + Vite + TypeScript app (Phase 5+, not yet scaffolded)
+frontend/   React + Vite + TypeScript app (docs/04)
 infra/      docker-compose for local Postgres + Redis + API
 docs/       The full spec (source of truth — do not reimplement from memory)
 ```

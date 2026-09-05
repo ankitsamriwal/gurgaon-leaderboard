@@ -13,9 +13,24 @@ from app.deps import CurrentUser, get_current_user
 from app.models import PaymentIntent, Project
 from app.rate_limit import rate_limit
 from app.services.bids import accept_bid
+from app.services.projects import publish_leaderboard_update
 from app.services.razorpay_client import RazorpayClient, get_razorpay_client
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+
+class PaymentsConfigResponse(BaseModel):
+    razorpay_key_id: str
+
+
+@router.get("/config", response_model=PaymentsConfigResponse)
+async def payments_config():
+    """Lets the frontend decide, before calling anything, whether real
+    Razorpay Checkout is available or it should fall back to the demo
+    /payments/mock path — rather than discovering that by provoking a
+    failure out of /payments/intent. Key ID is safe to expose (docs/03).
+    """
+    return PaymentsConfigResponse(razorpay_key_id=settings.razorpay_key_id)
 
 
 class CreateIntentBody(BaseModel):
@@ -99,7 +114,9 @@ mock_router = APIRouter(prefix="/payments", tags=["payments-mock"])
 
 
 class MockPaymentBody(BaseModel):
-    intent_id: uuid.UUID
+    project_id: uuid.UUID
+    amount_paise: int
+    idempotency_key: str
 
 
 class MockPaymentResponse(BaseModel):
@@ -117,18 +134,36 @@ async def mock_payment(
     (docs/02-api-spec.md). Non-prod only — see app/main.py, which registers
     mock_router only when settings.is_production is False, checked once at
     app-factory time rather than per-request (docs/03's mock-mode guidance).
+
+    Deliberately does NOT go through /payments/intent first: that endpoint
+    hard-requires real Razorpay credentials (get_razorpay_client() refuses
+    to run without them), which would make the demo path itself
+    unreachable in any environment that doesn't have Razorpay configured —
+    the exact environment this endpoint exists for. It gets-or-creates its
+    own payment_intent via accept_bid(), same as the real webhook does.
     """
-    intent = await db.get(PaymentIntent, body.intent_id)
-    if intent is None or str(intent.user_id) != user.id:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown intent"}})
+    if body.amount_paise <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "AMOUNT_TOO_LOW", "message": "amount_paise must be positive"}},
+        )
+
+    project = await db.get(Project, body.project_id)
+    if project is None or project.status != "live":
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "PROJECT_NOT_LIVE", "message": "project is not live"}},
+        )
 
     result = await accept_bid(
         db,
-        project_id=intent.project_id,
-        user_id=intent.user_id,
-        amount_paise=intent.amount_paise,
-        idempotency_key=intent.idempotency_key,
+        project_id=body.project_id,
+        user_id=uuid.UUID(user.id),
+        amount_paise=body.amount_paise,
+        idempotency_key=body.idempotency_key,
         razorpay_payment_id_for=lambda i: f"mock_{i.id}",
         is_mock=True,
     )
+    if not result.already_settled:
+        await publish_leaderboard_update(db)
     return MockPaymentResponse(bid_id=result.bid.id, already_settled=result.already_settled)

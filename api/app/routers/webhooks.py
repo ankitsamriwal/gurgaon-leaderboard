@@ -18,6 +18,7 @@ from app.config import settings
 from app.db import get_db
 from app.models import PaymentIntent, WebhookEvent
 from app.services.bids import accept_bid
+from app.services.projects import publish_leaderboard_update
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
@@ -112,7 +113,7 @@ async def razorpay_webhook(request: Request, db: Annotated[AsyncSession, Depends
         await db.commit()
         return {"status": "amount_mismatch"}
 
-    await accept_bid(
+    result = await accept_bid(
         db,
         project_id=intent.project_id,
         user_id=intent.user_id,
@@ -124,4 +125,8 @@ async def razorpay_webhook(request: Request, db: Annotated[AsyncSession, Depends
 
     event.processed = True
     await db.commit()
+
+    if not result.already_settled:
+        await publish_leaderboard_update(db)
+
     return {"status": "processed"}
