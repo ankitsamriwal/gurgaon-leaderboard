@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from app.db import engine
 from app.main import app
+from app.redis_client import redis_client
 
 # The DB engine's connection pool is a module-level singleton whose asyncpg
 # connections are bound to whichever event loop first used them.
@@ -34,7 +35,9 @@ async def clean_db():
         await conn.execute(
             text(
                 "TRUNCATE leadership_log, admin_actions, webhook_events, bids, "
-                "payment_intents, projects, users RESTART IDENTITY CASCADE"
+                "payment_intents, projects, refresh_tokens, otp_requests, users "
+                "RESTART IDENTITY CASCADE"
             )
         )
+    await redis_client.flushdb()
     yield

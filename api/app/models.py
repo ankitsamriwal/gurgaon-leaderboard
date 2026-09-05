@@ -146,3 +146,36 @@ class LeadershipLog(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     became_leader_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     lost_leader_at: Mapped[object | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class OtpRequest(Base):
+    """Not in docs/01 — added for the OTP auth flow (docs/00, docs/05)."""
+
+    __tablename__ = "otp_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    phone: Mapped[str | None] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(Text)
+    otp_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consumed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    expires_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (CheckConstraint("phone IS NOT NULL OR email IS NOT NULL", name="ck_otp_requests_contact"),)
+
+
+class RefreshToken(Base):
+    """Not in docs/01 — added for refresh-token rotation with reuse
+    detection (docs/05-security-anti-fraud.md)."""
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    replaced_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("refresh_tokens.id"))
+    expires_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())

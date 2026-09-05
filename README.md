@@ -51,7 +51,37 @@ order and phase gates.
   touching any row that foreign-keys to it — see the docstring on
   `accept_bid()` in `app/services/bids.py`.
 
-Everything after Phase 1 (auth, Razorpay, frontend, admin panel, security
+**Phase 2 — Auth** (`docs/07-implementation-plan.md`)
+
+- [x] OTP request/verify (`app/routers/auth.py`, `app/services/auth.py`),
+      JWT access tokens, refresh-token rotation with reuse detection per
+      `docs/05-security-anti-fraud.md`.
+- [x] `otp_requests` and `refresh_tokens` tables added (migration `0002`) —
+      not in `docs/01-database-schema.md`, which only covers the money
+      tables; these support the auth design from `docs/00`/`docs/05`.
+- [x] OTP delivery is pluggable (`app/services/otp_provider.py`); the only
+      implementation right now logs the code and — **only outside
+      production** — echoes it in the API response as `debug_otp`, since
+      there's no real SMS/email account (MSG91/Twilio, per `docs/00`) to
+      wire up. `get_otp_provider()` raises at startup if
+      `ENVIRONMENT=production` and no real provider has been substituted —
+      it fails loudly rather than silently not sending OTPs in prod.
+- [x] Rate limiting on `/auth/otp/request` (5/hour per phone, per
+      `docs/05`'s table) — the full endpoint-by-endpoint sweep is Phase 7,
+      but this one's rate limit is part of the endpoint's own contract.
+- [x] **Exit criterion met**, verified against real Postgres + Redis: a
+      user signs up via OTP and gets a valid access+refresh token pair;
+      an expired OTP is rejected (`OTP_EXPIRED`); a rotated refresh token
+      is rejected on reuse (`REFRESH_REUSED`) and revokes its *entire*
+      session chain, not just itself; logout revokes the session
+      (`REFRESH_REVOKED`).
+- **Known gap, by design**: no real OTP provider or SMS/email account
+  exists for this build. Swap `LogOtpProvider` in
+  `app/services/otp_provider.py` for a real MSG91/Twilio implementation
+  before production — everything else (hashing, expiry, attempt limits,
+  rate limiting) is provider-agnostic and already in place.
+
+Everything after Phase 2 (Razorpay, frontend, admin panel, security
 hardening, legal/compliance UI) is **not yet built** — follow the phased
 plan and do not skip ahead, per the non-negotiables in `docs/00-overview.md`.
 
