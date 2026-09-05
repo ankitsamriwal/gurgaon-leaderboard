@@ -81,9 +81,49 @@ order and phase gates.
   before production — everything else (hashing, expiry, attempt limits,
   rate limiting) is provider-agnostic and already in place.
 
-Everything after Phase 2 (Razorpay, frontend, admin panel, security
-hardening, legal/compliance UI) is **not yet built** — follow the phased
-plan and do not skip ahead, per the non-negotiables in `docs/00-overview.md`.
+**Phase 3 — Razorpay integration** (`docs/07-implementation-plan.md`)
+
+- [x] `POST /payments/intent` (`app/routers/payments.py`) — auth required,
+      idempotent by `idempotency_key`, creates a real Razorpay Order via
+      `app/services/razorpay_client.py`.
+- [x] `POST /webhooks/razorpay` (`app/routers/webhooks.py`) — no user
+      auth, HMAC-SHA256 signature verification over the raw request body
+      (docs/03's reference implementation, byte-for-byte), dedup by
+      `razorpay_event_id` against `webhook_events`, amount-match check
+      against the intent, then settles through the *same* `accept_bid()`
+      transaction Phase 1's load test already proved correct under
+      concurrency.
+- [x] `POST /payments/mock` — demo-only payment bypass from `docs/02`,
+      auth required, registered only outside production (verified: absent
+      from a production-mode app's routes).
+- [x] **Exit criterion met**: end-to-end (intent → webhook) settles
+      exactly one `bids` row; replaying the identical webhook payload
+      returns `already_processed` and does not duplicate; an invalid
+      signature is rejected and logged to `webhook_events` regardless; an
+      amount mismatch between the webhook and the intent inserts no bid.
+- **Known gap, by design**: no real Razorpay account/test-mode keys exist
+  for this build (`RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are empty by
+  default and `get_razorpay_client()` refuses to run without them). Order
+  creation is tested via FastAPI's standard `dependency_overrides`
+  mechanism (a fake Orders API client) — real, unmodified code runs in
+  production; only the HTTP call to Razorpay itself was substituted for
+  testing. Everything downstream — idempotency, signature verification,
+  amount checks, the ledger transaction — was exercised for real against
+  Postgres, including a real HMAC signature computed with a test webhook
+  secret. Set real test-mode keys and do one live checkout against
+  Razorpay's test mode before trusting this in staging.
+- **Also flagged, not fixed**: `docs/03`'s "flag to `admin_actions`" for
+  an amount mismatch doesn't fit the schema as designed —
+  `admin_actions.admin_user_id` is `NOT NULL` (it models actions an admin
+  *took*, not system-detected anomalies with no admin actor). Currently
+  just logs at ERROR level instead. Fixing this properly needs either a
+  nullable `admin_user_id` or a dedicated alerts table — a schema decision
+  for whoever owns `docs/01`, not something to improvise around silently.
+
+Everything after Phase 3 (project submission/moderation, frontend, admin
+panel, security hardening, legal/compliance UI) is **not yet built** —
+follow the phased plan and do not skip ahead, per the non-negotiables in
+`docs/00-overview.md`.
 
 ## Local development
 

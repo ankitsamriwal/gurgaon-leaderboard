@@ -3,6 +3,8 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.routers.auth import router as auth_router
+from app.routers.payments import router as payments_router
+from app.routers.webhooks import router as webhooks_router
 
 
 def create_app() -> FastAPI:
@@ -27,11 +29,15 @@ def create_app() -> FastAPI:
         return {"status": "ok", "environment": settings.environment}
 
     app.include_router(auth_router)
+    app.include_router(payments_router)
+    app.include_router(webhooks_router)
 
     if not settings.is_production:
         from app.routers.internal import router as internal_router
+        from app.routers.payments import mock_router as payments_mock_router
 
         app.include_router(internal_router)
+        app.include_router(payments_mock_router)
 
     return app
 
