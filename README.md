@@ -21,10 +21,39 @@ order and phase gates.
       re-verified with `docker compose up --build` the first time this runs
       somewhere with normal registry access.
 
-Everything after Phase 0 (ledger transaction logic, auth, Razorpay, frontend,
-admin panel, security hardening, legal/compliance UI) is **not yet built** —
-follow the phased plan and do not skip ahead, per the non-negotiables in
-`docs/00-overview.md`.
+**Phase 1 — Ledger & transaction correctness** (the core risk, per
+`docs/07-implementation-plan.md`)
+
+- [x] Bid-acceptance transaction (`app/services/bids.py`) implementing the
+      `SELECT ... FOR UPDATE` flow from `docs/01-database-schema.md`,
+      get-or-create-by-idempotency-key semantics from `docs/03`, and
+      `leadership_log` maintenance.
+- [x] Internal mock-settle endpoints (`app/routers/internal.py`,
+      `/internal/test/*`) standing in for the Razorpay webhook, so the
+      ledger can be load-tested before Phase 3 wires up real payments.
+      Registered only when `ENVIRONMENT != production`, checked once at
+      app-factory time — confirmed excluded from a production-mode app
+      (no `/internal/*` routes registered).
+- [x] Concurrent load test (`tests/load/test_concurrent_bids.py`) per
+      `docs/05-security-anti-fraud.md`'s release-gate: 100 concurrent bids
+      against the same project. **Exit criterion met** — verified against
+      real Postgres, 5 consecutive runs, zero double-counted or lost bids,
+      `cached_total_paise` always equals `SUM(bids.amount_paise)`.
+      A second test confirms a double-tapped idempotency key never
+      double-counts even when settled concurrently.
+- **Real bug caught and fixed by this test**: the first implementation
+  created the `payment_intents` row (which takes an implicit `FOR KEY
+  SHARE` lock on the referenced project row via its foreign key) *before*
+  locking the project row `FOR UPDATE`. Under concurrent load this is a
+  classic lock-upgrade deadlock — every concurrent transaction holds the
+  weak lock and waits to upgrade to the strong one. Fixed by always
+  acquiring the project's `FOR UPDATE` lock first, before creating or
+  touching any row that foreign-keys to it — see the docstring on
+  `accept_bid()` in `app/services/bids.py`.
+
+Everything after Phase 1 (auth, Razorpay, frontend, admin panel, security
+hardening, legal/compliance UI) is **not yet built** — follow the phased
+plan and do not skip ahead, per the non-negotiables in `docs/00-overview.md`.
 
 ## Local development
 
@@ -42,6 +71,18 @@ To run migrations manually against a running Postgres:
 cd api
 pip install -r requirements.txt
 alembic upgrade head
+```
+
+To run the test suite (needs a running Postgres + Redis, e.g. via
+`docker compose up postgres redis` or local installs):
+
+```bash
+cd api
+pip install -r requirements-dev.txt
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/gurgaon_leaderboard \
+REDIS_URL=redis://localhost:6379/0 \
+ENVIRONMENT=local \
+pytest
 ```
 
 ## Layout

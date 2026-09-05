@@ -10,6 +10,11 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         return {"status": "ok", "environment": settings.environment}
 
+    if not settings.is_production:
+        from app.routers.internal import router as internal_router
+
+        app.include_router(internal_router)
+
     return app
 
 

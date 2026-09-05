@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     environment: str = "local"
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/gurgaon_leaderboard"
     redis_url: str = "redis://localhost:6379/0"
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
 
     jwt_secret: str = "dev-secret-change-me"
 
