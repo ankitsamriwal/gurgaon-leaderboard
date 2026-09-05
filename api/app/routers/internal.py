@@ -119,3 +119,23 @@ async def settle_bid(body: SettleBidRequest, db: Annotated[AsyncSession, Depends
         total_bid_count=result.project.total_bid_count,
         already_settled=result.already_settled,
     )
+
+
+class PromoteRoleRequest(BaseModel):
+    user_id: uuid.UUID
+    role: str
+
+
+@router.post("/promote-role")
+async def promote_role(body: PromoteRoleRequest, db: Annotated[AsyncSession, Depends(get_db)]):
+    """Test-only role bootstrap. There is no real signup-as-admin flow in
+    this spec (docs/00-02) — real deployments would set this via a manual
+    DB action or a separate admin-invite process, which is an operational
+    concern out of scope for the API surface itself.
+    """
+    user = await db.get(User, body.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown user"}})
+    user.role = body.role
+    await db.commit()
+    return {"user_id": str(user.id), "role": user.role}

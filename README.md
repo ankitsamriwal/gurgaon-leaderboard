@@ -120,10 +120,50 @@ order and phase gates.
   nullable `admin_user_id` or a dedicated alerts table — a schema decision
   for whoever owns `docs/01`, not something to improvise around silently.
 
-Everything after Phase 3 (project submission/moderation, frontend, admin
-panel, security hardening, legal/compliance UI) is **not yet built** —
-follow the phased plan and do not skip ahead, per the non-negotiables in
-`docs/00-overview.md`.
+**Phase 4 — Project submission & moderation** (`docs/07-implementation-plan.md`)
+
+- [x] `POST /projects` — auth required, RERA format check, duplicate
+      rejection (DB constraint backed), 3/day-per-user rate limit. Goes to
+      `pending_review`.
+- [x] `GET /projects/leaderboard` (Redis-cached, 7s TTL) and
+      `GET /projects/{id}` (paginated bid history; bid rows expose
+      `bidder_label` only, never `user_id`, per docs/01's "display-only,
+      never identity"). Both **404 `PROJECT_NOT_LIVE` for anything not
+      live** — the moderation gate isn't bypassable by guessing/knowing a
+      project id, even for the submitter.
+- [x] Admin queue (`app/routers/admin.py`, `role=admin` only):
+      `GET /admin/projects/pending`, `approve`, `reject`, `verify-rera` —
+      every action logged to `admin_actions`. Approve/reject invalidate
+      the leaderboard cache immediately rather than waiting out its TTL.
+- [x] `POST /projects/{id}/claim` + admin `approve`/`reject` — approving a
+      claim sets `projects.claimed_by` and promotes the claimant to
+      `role='developer'`.
+- [x] **Exit criterion met**: verified against real Postgres — a
+      newly-submitted project is invisible on the leaderboard and 404s on
+      direct fetch until an admin approves it; rejecting keeps it off
+      permanently; a non-admin gets 403 on admin routes.
+- **Design call, not in the spec docs**: `docs/02` gates the claim
+  endpoint to "developer role", but nothing in this build ever grants
+  that role up front — there's no signup-as-a-developer flow. Filing a
+  claim is open to any authenticated user; admin *approval* of the claim
+  is what promotes them to `role='developer'`, not a precondition for
+  filing.
+- **Known gap**: RERA number format validation (`app/validators.py`) is a
+  best-effort shape check based on the publicly known
+  `RC/REP/HARERA/<zone>/...` convention — there's no access to the real
+  Haryana RERA portal to confirm the exact pattern. It rejects obvious
+  garbage, nothing more; `docs/05` is explicit that only manual admin
+  verification is the real source of truth here, which is what
+  `verify-rera` is for.
+- **Known gap**: there's no admin bootstrap flow (how does the first
+  admin account get created?). `app/routers/internal.py`'s
+  `/internal/test/promote-role` is test-only and absent from production
+  builds; a real deployment needs a manual DB action or a separate
+  invite process — an operational decision, not an API design one.
+
+Everything after Phase 4 (frontend, reconciliation, security hardening,
+legal/compliance UI) is **not yet built** — follow the phased plan and do
+not skip ahead, per the non-negotiables in `docs/00-overview.md`.
 
 ## Local development
 
