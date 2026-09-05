@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import CurrentUser, require_role
-from app.models import AdminAction, Project, ProjectClaim, User
+from app.models import AdminAction, Bid, Project, ProjectClaim, ReconciliationReport, User
 from app.redis_client import redis_client
-from app.services.projects import LEADERBOARD_CACHE_KEY
+from app.services.bids import reverse_bid
+from app.services.projects import LEADERBOARD_CACHE_KEY, publish_leaderboard_update
+from app.services.reconciliation import run_reconciliation
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 require_admin = require_role("admin")
@@ -194,3 +196,61 @@ async def reject_claim(
     )
     await db.commit()
     return {"id": str(claim.id), "status": claim.status}
+
+
+@router.post("/bids/{bid_id}/reverse")
+async def reverse_bid_endpoint(
+    bid_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """Refund/chargeback handling (docs/02, docs/03)."""
+    bid = await db.get(Bid, bid_id)
+    if bid is None:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown bid"}})
+
+    await reverse_bid(db, bid_id=bid_id, reason="admin reversal")
+    _log_action(db, admin_id=uuid.UUID(admin.id), action_type="refund_bid", target_table="bids", target_id=bid_id)
+    await db.commit()
+    await publish_leaderboard_update(db)
+    await redis_client.delete(LEADERBOARD_CACHE_KEY)
+
+    updated = await db.get(Bid, bid_id)
+    return {"id": str(updated.id), "reversed": updated.reversed}
+
+
+@router.get("/reconciliation/report")
+async def latest_reconciliation_report(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """Returns the latest nightly reconciliation job output (docs/02, docs/03)."""
+    report = (
+        await db.execute(select(ReconciliationReport).order_by(ReconciliationReport.run_at.desc()).limit(1))
+    ).scalar_one_or_none()
+    if report is None:
+        return {"report": None}
+    return {
+        "report": {
+            "id": str(report.id),
+            "run_at": report.run_at.isoformat(),
+            "projects_checked": report.projects_checked,
+            "mismatch_count": report.mismatch_count,
+            "mismatches": report.mismatches,
+        }
+    }
+
+
+@router.post("/reconciliation/run")
+async def trigger_reconciliation(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """Runs the reconciliation job on demand. The real schedule is an
+    external nightly cron/APScheduler job calling the same
+    run_reconciliation() (docs/03: 2 AM IST) — see api/scripts/run_reconciliation.py.
+    This on-demand trigger is not in docs/02 but is the minimal way to
+    make the job operable/testable without standing up a scheduler.
+    """
+    report = await run_reconciliation(db)
+    return {"report": report}

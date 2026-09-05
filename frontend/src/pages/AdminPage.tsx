@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiRequestError } from "../lib/api";
 import { useAuthStore } from "../store/auth";
+import { ReconciliationPanel } from "../components/ReconciliationPanel";
 
 interface PendingProject {
   id: string;
@@ -24,6 +25,7 @@ export function AdminPage() {
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const [forbidden, setForbidden] = useState(false);
+  const [reverseBidId, setReverseBidId] = useState("");
 
   const pendingProjects = useQuery({
     queryKey: ["admin", "projects", "pending"],
@@ -74,6 +76,14 @@ export function AdminPage() {
   const rejectClaim = useMutation({
     mutationFn: (id: string) => apiFetch(`/admin/claims/${id}/reject`, { method: "POST", body: JSON.stringify({}) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "claims", "pending"] }),
+  });
+
+  const reverseBid = useMutation({
+    mutationFn: (id: string) => apiFetch(`/admin/bids/${id}/reverse`, { method: "POST" }),
+    onSuccess: () => {
+      setReverseBidId("");
+      queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
+    },
   });
 
   if (!user) {
@@ -133,6 +143,32 @@ export function AdminPage() {
         ))}
         {pendingClaims.data?.length === 0 && <li>Nothing pending.</li>}
       </ul>
+
+      <h2>Refund / chargeback a bid</h2>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (reverseBidId) reverseBid.mutate(reverseBidId);
+        }}
+      >
+        <label htmlFor="reverse-bid-id">Bid ID</label>
+        <input
+          id="reverse-bid-id"
+          value={reverseBidId}
+          onChange={(e) => setReverseBidId(e.target.value)}
+          placeholder="bid uuid"
+        />
+        <button type="submit" disabled={reverseBid.isPending}>
+          {reverseBid.isPending ? "Reversing…" : "Reverse bid"}
+        </button>
+        {reverseBid.isError && (
+          <p role="alert">
+            {reverseBid.error instanceof ApiRequestError ? reverseBid.error.message : "Could not reverse that bid."}
+          </p>
+        )}
+      </form>
+
+      <ReconciliationPanel />
     </div>
   );
 }

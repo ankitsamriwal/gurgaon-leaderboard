@@ -34,7 +34,7 @@ async def clean_db():
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "TRUNCATE leadership_log, admin_actions, webhook_events, bids, "
+                "TRUNCATE leadership_log, admin_actions, reconciliation_reports, webhook_events, bids, "
                 "payment_intents, project_claims, projects, refresh_tokens, otp_requests, users "
                 "RESTART IDENTITY CASCADE"
             )

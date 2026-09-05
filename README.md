@@ -209,10 +209,47 @@ order and phase gates.
   submissions" or "my bids" endpoint to back the page `docs/04` describes.
   Flagged in the UI itself rather than faked.
 
-Everything after Phase 5 (nightly reconciliation, admin panel polish,
-security hardening, legal/compliance UI) is **not yet built** — follow the
-phased plan and do not skip ahead, per the non-negotiables in
-`docs/00-overview.md`.
+**Phase 6 — Admin panel & reconciliation** (`docs/07-implementation-plan.md`)
+
+- [x] `POST /admin/bids/{id}/reverse` (`app/services/bids.py`'s
+      `reverse_bid()`) — refund/chargeback handling: marks the bid
+      reversed, recalculates `cached_total_paise`/`total_bid_count` inside
+      the same locked-project transaction pattern as `accept_bid()`, logs
+      to `admin_actions`.
+- [x] Nightly reconciliation (`app/services/reconciliation.py`,
+      `reconciliation_reports` table, migration `0004`): recomputes every
+      project's total from the ledger, diffs against the cache, **logs
+      the mismatch before correcting it** (docs/03: "auto-correct only
+      after the alert fires, never silently"), and stores a report row as
+      the paper trail. `GET /admin/reconciliation/report` and an on-demand
+      `POST /admin/reconciliation/run` (not in `docs/02` — the minimal way
+      to make the job operable/testable without a scheduler) expose it.
+      `api/scripts/run_reconciliation.py` is the entrypoint for a real
+      cron/APScheduler job.
+- [x] Frontend `ReconciliationPanel` (docs/04) added to the admin page,
+      plus a bid-reversal form.
+- [x] **Exit criterion met**: intentionally desyncing a project's cache
+      via raw SQL gets caught and corrected by `/admin/reconciliation/run`,
+      verified against real Postgres.
+- **Real bug this phase's testing caught and fixed**: `_update_leadership_log`
+  (from Phase 1) only checked whether the project whose bid had just been
+  accepted was the new #1 — correct as long as totals only ever increase,
+  since a project gaining money can never hand the lead to some other,
+  untouched project. Reversal breaks that invariant: knocking the current
+  leader down can make a *third, untouched* project the new #1, which the
+  old check would miss entirely (leaving `leadership_log`'s "current
+  leader" stuck on a project that no longer leads). Fixed by having it
+  always recompute the true global leader rather than checking only the
+  caller's project. Covered by a regression test with three projects.
+- **Known gap, by design**: `docs/03`'s reconciliation job also cross-checks
+  the ledger against Razorpay's own settlement report/payments API — not
+  implemented, since no real Razorpay account exists for this build (same
+  gap noted in Phase 3). What's implemented and tested is this build's
+  actual release gate: ledger-vs-cache consistency.
+
+Everything after Phase 6 (security/anti-fraud pass, legal/compliance UI,
+launch readiness) is **not yet built** — follow the phased plan and do not
+skip ahead, per the non-negotiables in `docs/00-overview.md`.
 
 ## Local development
 

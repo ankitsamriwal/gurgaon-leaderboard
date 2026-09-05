@@ -199,3 +199,17 @@ class ProjectClaim(Base):
     __table_args__ = (
         CheckConstraint("status IN ('pending','approved','rejected')", name="ck_project_claims_status"),
     )
+
+
+class ReconciliationReport(Base):
+    """Not in docs/01 — stores each nightly reconciliation run's findings
+    (docs/03, docs/07 Phase 6) so GET /admin/reconciliation/report has
+    something to return."""
+
+    __tablename__ = "reconciliation_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    run_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    projects_checked: Mapped[int] = mapped_column(Integer, nullable=False)
+    mismatch_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    mismatches: Mapped[list] = mapped_column(JSONB, nullable=False)

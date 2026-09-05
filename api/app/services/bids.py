@@ -96,7 +96,7 @@ async def accept_bid(
     intent.status = "verified"
     intent.updated_at = datetime.now(timezone.utc)
 
-    await _update_leadership_log(session, project)
+    await _update_leadership_log(session)
 
     try:
         await session.commit()
@@ -125,16 +125,25 @@ async def _find_bid_for_intent(session: AsyncSession, payment_intent_id: uuid.UU
     ).scalar_one_or_none()
 
 
-async def _update_leadership_log(session: AsyncSession, project: Project) -> None:
+async def _update_leadership_log(session: AsyncSession) -> None:
     """Keep leadership_log in sync with the #1 live project.
 
-    Only the target project's row is locked above (per doc 01: locking more
-    than one project row is normally unnecessary). This read of the current
-    top project is therefore not itself lock-protected against a concurrent
-    bid landing on a *different* project at the same instant — acceptable
-    here because leadership_log only backs the "leader for Xd Yh" display
-    feature, not money correctness. The load-bearing guarantee (bids ledger
-    vs. cached_total_paise) does not depend on this function.
+    Recomputes who the *global* current leader is and compares against the
+    open leadership_log row — not scoped to whichever project the caller
+    just touched. That distinction only matters once totals can go down
+    (reverse_bid): a project's own bid increasing can only ever help or
+    hold its own rank, never hand the lead to some third, untouched
+    project, so checking "did I become leader" was sufficient for
+    accept_bid alone. A reversal can knock the *current* leader out of
+    first without whatever project it's compared against being the new
+    one, so the general form is needed once refunds exist too.
+
+    Only the target project's row is locked by callers (per doc 01:
+    locking more than one project row is normally unnecessary). This read
+    of the current top project is therefore not itself lock-protected
+    against a concurrent bid landing on a different project at the same
+    instant — acceptable here because leadership_log only backs the
+    "leader for Xd Yh" display feature, not money correctness.
     """
     current_leader_id = (
         await session.execute(
@@ -145,9 +154,6 @@ async def _update_leadership_log(session: AsyncSession, project: Project) -> Non
         )
     ).scalar_one_or_none()
 
-    if current_leader_id is None or current_leader_id != project.id:
-        return
-
     open_row = (
         await session.execute(
             select(LeadershipLog)
@@ -157,10 +163,49 @@ async def _update_leadership_log(session: AsyncSession, project: Project) -> Non
         )
     ).scalar_one_or_none()
 
-    if open_row is not None and open_row.project_id == project.id:
+    if current_leader_id is None:
+        if open_row is not None:
+            open_row.lost_leader_at = datetime.now(timezone.utc)
+        return
+
+    if open_row is not None and open_row.project_id == current_leader_id:
         return
 
     now = datetime.now(timezone.utc)
     if open_row is not None:
         open_row.lost_leader_at = now
-    session.add(LeadershipLog(project_id=project.id, became_leader_at=now))
+    session.add(LeadershipLog(project_id=current_leader_id, became_leader_at=now))
+
+
+async def reverse_bid(session: AsyncSession, *, bid_id: uuid.UUID, reason: str | None) -> Bid:
+    """Refund/chargeback handling (docs/02, docs/03): marks the bid
+    reversed and recalculates the project's cached_total_paise inside a
+    transaction. docs/03: no retroactive rewrite of leadership_log history
+    — only current totals and future leadership are affected, which
+    _update_leadership_log already guarantees (it only ever opens/closes
+    the *current* open row, never edits closed historical ones).
+    """
+    bid = await session.get(Bid, bid_id)
+    if bid is None:
+        raise ValueError(f"unknown bid {bid_id}")
+    if bid.reversed:
+        return bid  # idempotent — already reversed, nothing to redo
+
+    project = (
+        await session.execute(select(Project).where(Project.id == bid.project_id).with_for_update())
+    ).scalar_one()
+
+    bid.reversed = True
+    bid.reversed_at = datetime.now(timezone.utc)
+    bid.reversal_reason = reason
+
+    project.cached_total_paise -= bid.amount_paise
+    project.total_bid_count -= 1
+    project.version += 1
+    project.updated_at = datetime.now(timezone.utc)
+
+    await _update_leadership_log(session)
+
+    await session.commit()
+    await session.refresh(bid)
+    return bid
