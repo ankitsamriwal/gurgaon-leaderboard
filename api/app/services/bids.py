@@ -11,11 +11,14 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Bid, LeadershipLog, PaymentIntent, Project
+
+# Arbitrary fixed key for pg_advisory_xact_lock — see _update_leadership_log.
+_LEADERSHIP_LOG_ADVISORY_LOCK_KEY = 72700100
 
 
 class BidResult:
@@ -139,12 +142,21 @@ async def _update_leadership_log(session: AsyncSession) -> None:
     one, so the general form is needed once refunds exist too.
 
     Only the target project's row is locked by callers (per doc 01:
-    locking more than one project row is normally unnecessary). This read
-    of the current top project is therefore not itself lock-protected
-    against a concurrent bid landing on a different project at the same
-    instant — acceptable here because leadership_log only backs the
-    "leader for Xd Yh" display feature, not money correctness.
+    locking more than one project row is normally unnecessary). This
+    function itself can end up inserting a leadership_log row that
+    FK-references a *different* project than whichever one the caller
+    locked (whenever leadership just changed to some other project) —
+    under concurrent load across many projects, two transactions doing
+    that for two different (unlocked, from their own perspective) leader
+    projects can deadlock on each other's FK-share locks, per doc 01's
+    "acquire locks in a fixed order" rule. leadership_log churn is rare
+    (only on an actual leadership change) and not money-correctness
+    load-bearing, so instead of a fixed lock *order* this just serializes
+    every call through one advisory lock — simpler, and cheap given how
+    infrequently leadership actually changes.
     """
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _LEADERSHIP_LOG_ADVISORY_LOCK_KEY})
+
     current_leader_id = (
         await session.execute(
             select(Project.id)

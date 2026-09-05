@@ -324,9 +324,68 @@ order and phase gates.
   substitute for the review itself, which requires an actual
   India-qualified lawyer per `docs/06`'s opening line.
 
-Everything after Phase 8 (launch readiness) is **not yet built** — follow
-the phased plan and do not skip ahead, per the non-negotiables in
-`docs/00-overview.md`.
+**Phase 9 — Load testing & launch readiness** (`docs/07-implementation-plan.md`,
+final phase)
+
+Much of this phase is inherently operational — real staging infra, a real
+Razorpay test-mode account, real monitoring/alerting/uptime services —
+none of which exist for this build. What's implemented is everything
+achievable without them, verified for real rather than described:
+
+- [x] **Simulated incident, verified**: `test_process_death_mid_transaction_leaves_ledger_consistent`
+      performs the exact writes `accept_bid()` would, then abandons the
+      session without committing — precisely what a killed process looks
+      like to Postgres. Confirmed against real Postgres: nothing
+      persisted (no bid, no orphaned intent, `cached_total_paise`
+      unchanged), and a fresh reconciliation run afterward finds nothing
+      to fix.
+- [x] **Alerts verified to actually fire**: both places `docs/03`
+      requires an alert hook (a reconciliation mismatch, a webhook amount
+      mismatch) were confirmed to emit real `ERROR`-level log lines with
+      the right content — the hook a real deployment wires to
+      Slack/PagerDuty/Sentry, checked with `caplog` rather than assumed
+      present because the code exists.
+- [x] **Backup/restore drill actually performed** (not just described) —
+      see [`runbooks/backup-restore.md`](runbooks/backup-restore.md):
+      `pg_dump`/`pg_restore` round-tripped the full schema (indexes,
+      constraints, FKs) and a known marker row into a separate scratch
+      database, verified, then torn down.
+- [x] **Broader load test**: `tests/load/test_mixed_workload.py` —
+      concurrent bidding across 5 different projects at once (100 bidders
+      total) plus concurrent leaderboard reads throughout, substituting
+      for "staging load test... mirroring expected launch traffic" since
+      no staging environment or Razorpay test-mode account exists.
+      Phase 1's same-project test remains the actual release gate for the
+      locking/correctness concern; this one is about a broader, more
+      realistic traffic shape.
+- **A third real deadlock, found and fixed by this test**: with several
+  projects bidding concurrently, `_update_leadership_log` could try to
+  insert a `leadership_log` row FK-referencing a *different* project than
+  the one its own caller had locked (whenever leadership had just changed
+  to someone else) — two transactions doing that for two different
+  unlocked "leader" projects at once could deadlock on each other's
+  FK-share locks, a four-process cycle confirmed in Postgres's own error
+  log. Fixed by serializing all `leadership_log` updates through a single
+  `pg_advisory_xact_lock` — simple and cheap given how rarely leadership
+  actually changes, and it sidesteps the cross-project lock-ordering
+  problem entirely rather than trying to solve it. This is the third
+  concurrency bug this build's own load tests caught across Phases 1, 6,
+  and 9 — each one a genuine bug in code that looked correct until run
+  under real concurrent load, which is the entire argument for having
+  these tests as release gates rather than trusting the transaction logic
+  by inspection.
+- **Known gap, by design — this phase's exit criterion is only partially
+  met**: no real staging environment, Razorpay test-mode account,
+  scheduled automated backups, or monitoring/alerting/uptime service
+  (Sentry, PagerDuty, an uptime pinger against `/health`) exist for this
+  build. `docs/00` lists these as deployment-time choices for whoever
+  hosts this; wiring them up is real work still ahead, not a testing gap
+  that can be closed by writing more tests in this repo.
+
+Everything is now built through Phase 9. **This is not the same as
+launch-ready**: Phase 8's legal sign-off and this phase's real
+staging/monitoring/backup infrastructure are both still open, external,
+and cannot be closed by code — see each phase's own notes above.
 
 ## Local development
 
