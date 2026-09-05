@@ -16,7 +16,7 @@ export function App() {
   return (
     <div className="app">
       <nav className="nav">
-        <Link to="/">Leaderboard</Link>
+        <Link to="/" className="brand">Gurgaon<span>Leaderboard</span></Link>
         <Link to="/submit">Submit a project</Link>
         {user ? (
           <>
