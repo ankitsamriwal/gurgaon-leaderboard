@@ -85,6 +85,8 @@ export function ProjectDetailPage() {
         {data.bids.items.length === 0 && <li>No bids yet.</li>}
       </ul>
 
+      {user && <DisputeLink projectId={projectId} />}
+
       <Disclaimer />
 
       {showBidModal && (
@@ -97,5 +99,63 @@ export function ProjectDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+/** docs/06 point 4's takedown/dispute fast path — "a real developer who
+ * did not submit their own listing needs a fast path to request removal
+ * or claim ownership." */
+function DisputeLink({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "sent" | "error">("idle");
+
+  if (!open) {
+    return (
+      <p>
+        <button onClick={() => setOpen(true)}>Dispute this listing</button>
+      </p>
+    );
+  }
+
+  if (status === "sent") {
+    return <p role="status">Thanks — an admin will review this shortly.</p>;
+  }
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          await apiFetch(`/projects/${projectId}/dispute`, {
+            method: "POST",
+            body: JSON.stringify({ reason, contact_email: contactEmail || undefined }),
+          });
+          setStatus("sent");
+        } catch {
+          setStatus("error");
+        }
+      }}
+    >
+      <label htmlFor="dispute-reason">Why are you disputing this listing?</label>
+      <textarea
+        id="dispute-reason"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        required
+        rows={3}
+        style={{ width: "100%" }}
+      />
+      <label htmlFor="dispute-email">Contact email (optional)</label>
+      <input id="dispute-email" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+      {status === "error" && <p role="alert">Could not file the dispute. Please try again.</p>}
+      <div className="modal-actions">
+        <button type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <button type="submit">Submit dispute</button>
+      </div>
+    </form>
   );
 }

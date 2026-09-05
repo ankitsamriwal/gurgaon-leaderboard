@@ -15,6 +15,16 @@ body {
   padding: 1rem;
 }
 
+.site-footer {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
 .nav {
   display: flex;
   gap: 1rem;

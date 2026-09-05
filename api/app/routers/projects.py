@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import CurrentUser, get_current_user
-from app.models import Project, ProjectClaim
+from app.models import Project, ProjectClaim, ProjectDispute
 from app.rate_limit import rate_limit
 from app.services.captcha_provider import get_captcha_provider
 from app.services.projects import create_project, get_leaderboard, get_project_detail
@@ -113,3 +113,45 @@ async def claim_project(
         )
     await db.refresh(claim)
     return ClaimResponse(claim_id=claim.id, status=claim.status)
+
+
+class DisputeBody(BaseModel):
+    reason: str
+    contact_email: str | None = None
+
+
+class DisputeResponse(BaseModel):
+    dispute_id: uuid.UUID
+    status: str
+
+
+@router.post("/{project_id}/dispute", status_code=202, response_model=DisputeResponse)
+async def dispute_project(
+    project_id: uuid.UUID,
+    body: DisputeBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+):
+    """Takedown/dispute fast path (docs/06 point 4): "a real developer who
+    did not submit their own listing needs a fast path to request removal
+    or claim ownership." Routes to the admin queue with priority flagging
+    — filing this is separate from (and doesn't require) the ownership
+    claim flow above, since a dispute may simply be "take this down",
+    not "give it to me".
+    """
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown project"}})
+
+    dispute = ProjectDispute(
+        project_id=project_id,
+        filed_by_user_id=uuid.UUID(user.id),
+        reason=body.reason,
+        contact_email=body.contact_email,
+        status="pending",
+        priority=True,
+    )
+    db.add(dispute)
+    await db.commit()
+    await db.refresh(dispute)
+    return DisputeResponse(dispute_id=dispute.id, status=dispute.status)

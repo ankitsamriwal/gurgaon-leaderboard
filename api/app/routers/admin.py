@@ -9,7 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import CurrentUser, require_role
-from app.models import AdminAction, Bid, Project, ProjectClaim, ReconciliationReport, User
+from app.models import (
+    AdminAction,
+    Bid,
+    DataRequest,
+    Project,
+    ProjectClaim,
+    ProjectDispute,
+    ReconciliationReport,
+    User,
+)
 from app.redis_client import redis_client
 from app.services.anti_fraud import compute_anti_fraud_flags
 from app.services.bids import reverse_bid
@@ -265,3 +274,148 @@ async def anti_fraud_flags(
     """Wash-trading heuristics for admin review (docs/05) — flags, never
     auto-blocks."""
     return await compute_anti_fraud_flags(db)
+
+
+@router.post("/projects/{project_id}/suspend")
+async def suspend_project(
+    project_id: uuid.UUID,
+    body: RejectBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """docs/06: prohibited conduct (wash trading, impersonation,
+    fraudulent RERA numbers) are "grounds for suspension per the
+    status='suspended' project state already in the schema" — this is
+    that action, previously modeled but never exposed."""
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown project"}})
+
+    project.status = "suspended"
+    project.updated_at = datetime.now(timezone.utc)
+    _log_action(
+        db, admin_id=uuid.UUID(admin.id), action_type="suspend_project", target_table="projects",
+        target_id=project_id, notes=body.reason,
+    )
+    await db.commit()
+    await redis_client.delete(LEADERBOARD_CACHE_KEY)
+    return {"id": str(project.id), "status": project.status}
+
+
+@router.get("/disputes/pending")
+async def list_pending_disputes(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """docs/06 point 4's takedown/dispute queue — ordered priority-first
+    (all current disputes are priority=True; the column exists so a
+    future non-priority intake path, if one is ever added, doesn't jump
+    the queue)."""
+    disputes = (
+        await db.execute(
+            select(ProjectDispute)
+            .where(ProjectDispute.status == "pending")
+            .order_by(ProjectDispute.priority.desc(), ProjectDispute.created_at.asc())
+        )
+    ).scalars().all()
+    return {
+        "disputes": [
+            {
+                "id": str(d.id),
+                "project_id": str(d.project_id),
+                "filed_by_user_id": str(d.filed_by_user_id),
+                "reason": d.reason,
+                "contact_email": d.contact_email,
+                "priority": d.priority,
+                "created_at": d.created_at.isoformat(),
+            }
+            for d in disputes
+        ]
+    }
+
+
+class ResolveDisputeBody(BaseModel):
+    notes: str | None = None
+    suspend_project: bool = False
+
+
+@router.post("/disputes/{dispute_id}/resolve")
+async def resolve_dispute(
+    dispute_id: uuid.UUID,
+    body: ResolveDisputeBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    dispute = await db.get(ProjectDispute, dispute_id)
+    if dispute is None:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown dispute"}})
+
+    dispute.status = "resolved"
+    dispute.resolved_by = uuid.UUID(admin.id)
+    dispute.resolved_at = datetime.now(timezone.utc)
+    dispute.resolution_notes = body.notes
+
+    if body.suspend_project:
+        project = await db.get(Project, dispute.project_id)
+        project.status = "suspended"
+        project.updated_at = datetime.now(timezone.utc)
+        await redis_client.delete(LEADERBOARD_CACHE_KEY)
+
+    _log_action(
+        db, admin_id=uuid.UUID(admin.id), action_type="resolve_dispute", target_table="project_disputes",
+        target_id=dispute_id, notes=body.notes,
+    )
+    await db.commit()
+    return {"id": str(dispute.id), "status": dispute.status}
+
+
+@router.get("/data-requests/pending")
+async def list_pending_data_requests(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    requests = (
+        await db.execute(select(DataRequest).where(DataRequest.status == "pending").order_by(DataRequest.created_at.asc()))
+    ).scalars().all()
+    return {
+        "requests": [
+            {"id": str(r.id), "user_id": str(r.user_id), "request_type": r.request_type, "created_at": r.created_at.isoformat()}
+            for r in requests
+        ]
+    }
+
+
+@router.post("/data-requests/{request_id}/fulfill")
+async def fulfill_data_request(
+    request_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
+):
+    """docs/06: "even a manual admin-actioned process is acceptable for
+    v1, but the capability must exist." Export: the actual data
+    compilation/delivery is a manual out-of-band admin process (there is
+    no automated export bundle) — this just records that it happened.
+    Delete: anonymizes the user row rather than removing it — bids and
+    payment_intents keep their FK to it, since docs/06 requires retaining
+    payment/ledger records even after a deletion request.
+    """
+    request = await db.get(DataRequest, request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "unknown request"}})
+
+    if request.request_type == "delete":
+        user = await db.get(User, request.user_id)
+        user.display_name = "Deleted User"
+        user.phone = None
+        user.email = None
+
+    request.status = "fulfilled"
+    request.fulfilled_by = uuid.UUID(admin.id)
+    request.fulfilled_at = datetime.now(timezone.utc)
+
+    _log_action(
+        db, admin_id=uuid.UUID(admin.id), action_type=f"fulfill_data_request_{request.request_type}",
+        target_table="data_requests", target_id=request_id,
+    )
+    await db.commit()
+    return {"id": str(request.id), "status": request.status}

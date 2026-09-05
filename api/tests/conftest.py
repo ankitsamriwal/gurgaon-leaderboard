@@ -35,8 +35,8 @@ async def clean_db():
         await conn.execute(
             text(
                 "TRUNCATE leadership_log, admin_actions, reconciliation_reports, webhook_events, bids, "
-                "payment_intents, project_claims, projects, refresh_tokens, otp_requests, users "
-                "RESTART IDENTITY CASCADE"
+                "payment_intents, project_claims, project_disputes, data_requests, projects, "
+                "refresh_tokens, otp_requests, users RESTART IDENTITY CASCADE"
             )
         )
     await redis_client.flushdb()

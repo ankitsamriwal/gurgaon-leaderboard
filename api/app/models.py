@@ -213,3 +213,51 @@ class ReconciliationReport(Base):
     projects_checked: Mapped[int] = mapped_column(Integer, nullable=False)
     mismatch_count: Mapped[int] = mapped_column(Integer, nullable=False)
     mismatches: Mapped[list] = mapped_column(JSONB, nullable=False)
+
+
+class ProjectDispute(Base):
+    """Not in docs/01 — the takedown/dispute fast path from
+    docs/06-legal-compliance.md point 4: "a real developer who did not
+    submit their own listing needs a fast path to request removal or
+    claim ownership."."""
+
+    __tablename__ = "project_disputes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    filed_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    priority: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    resolved_at: Mapped[object | None] = mapped_column(TIMESTAMP(timezone=True))
+    resolution_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','resolved','rejected')", name="ck_project_disputes_status"),
+    )
+
+
+class DataRequest(Base):
+    """Not in docs/01 — DPDP export/delete capability from
+    docs/06-legal-compliance.md's Data protection section. Deletion is
+    fulfilled by anonymizing the user row, not removing it — docs/06:
+    payment/ledger records must be retained per Razorpay/RBI-driven
+    retention requirements even after a deletion request."""
+
+    __tablename__ = "data_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    request_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    fulfilled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    fulfilled_at: Mapped[object | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[object] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("request_type IN ('export','delete')", name="ck_data_requests_type"),
+        CheckConstraint("status IN ('pending','fulfilled')", name="ck_data_requests_status"),
+    )

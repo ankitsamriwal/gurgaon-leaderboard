@@ -21,6 +21,21 @@ interface PendingClaim {
   document_url: string | null;
 }
 
+interface PendingDispute {
+  id: string;
+  project_id: string;
+  filed_by_user_id: string;
+  reason: string;
+  contact_email: string | null;
+  priority: boolean;
+}
+
+interface PendingDataRequest {
+  id: string;
+  user_id: string;
+  request_type: string;
+}
+
 export function AdminPage() {
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
@@ -47,6 +62,26 @@ export function AdminPage() {
     queryFn: async () => {
       const resp = await apiFetch<{ claims: PendingClaim[] }>("/admin/claims/pending");
       return resp.claims;
+    },
+    enabled: !!user && !forbidden,
+    retry: false,
+  });
+
+  const pendingDisputes = useQuery({
+    queryKey: ["admin", "disputes", "pending"],
+    queryFn: async () => {
+      const resp = await apiFetch<{ disputes: PendingDispute[] }>("/admin/disputes/pending");
+      return resp.disputes;
+    },
+    enabled: !!user && !forbidden,
+    retry: false,
+  });
+
+  const pendingDataRequests = useQuery({
+    queryKey: ["admin", "data-requests", "pending"],
+    queryFn: async () => {
+      const resp = await apiFetch<{ requests: PendingDataRequest[] }>("/admin/data-requests/pending");
+      return resp.requests;
     },
     enabled: !!user && !forbidden,
     retry: false,
@@ -84,6 +119,23 @@ export function AdminPage() {
       setReverseBidId("");
       queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
     },
+  });
+
+  const resolveDispute = useMutation({
+    mutationFn: ({ id, suspend }: { id: string; suspend: boolean }) =>
+      apiFetch(`/admin/disputes/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ suspend_project: suspend }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "disputes", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
+    },
+  });
+
+  const fulfillDataRequest = useMutation({
+    mutationFn: (id: string) => apiFetch(`/admin/data-requests/${id}/fulfill`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "data-requests", "pending"] }),
   });
 
   if (!user) {
@@ -167,6 +219,34 @@ export function AdminPage() {
           </p>
         )}
       </form>
+
+      <h2>Pending disputes</h2>
+      <ul>
+        {pendingDisputes.data?.map((d) => (
+          <li key={d.id}>
+            {d.priority && <strong>[priority] </strong>}
+            Project {d.project_id} — "{d.reason}"{d.contact_email && ` (${d.contact_email})`}
+            <button onClick={() => resolveDispute.mutate({ id: d.id, suspend: false })}>
+              Resolve (no action)
+            </button>
+            <button onClick={() => resolveDispute.mutate({ id: d.id, suspend: true })}>
+              Resolve & suspend project
+            </button>
+          </li>
+        ))}
+        {pendingDisputes.data?.length === 0 && <li>Nothing pending.</li>}
+      </ul>
+
+      <h2>Pending data requests</h2>
+      <ul>
+        {pendingDataRequests.data?.map((r) => (
+          <li key={r.id}>
+            {r.request_type} — user {r.user_id}
+            <button onClick={() => fulfillDataRequest.mutate(r.id)}>Mark fulfilled</button>
+          </li>
+        ))}
+        {pendingDataRequests.data?.length === 0 && <li>Nothing pending.</li>}
+      </ul>
 
       <ReconciliationPanel />
     </div>

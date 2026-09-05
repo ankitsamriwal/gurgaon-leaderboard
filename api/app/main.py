@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.routers.account import router as account_router
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.payments import router as payments_router
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "environment": settings.environment}
 
     app.include_router(auth_router)
+    app.include_router(account_router)
     app.include_router(payments_router)
     app.include_router(webhooks_router)
     app.include_router(projects_router)

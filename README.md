@@ -282,9 +282,51 @@ order and phase gates.
   implemented. The three heuristics that use data this system actually
   has (repeated bidder, new-account clustering, velocity spike) are.
 
-Everything after Phase 7 (legal/compliance UI, launch readiness) is **not
-yet built** — follow the phased plan and do not skip ahead, per the
-non-negotiables in `docs/00-overview.md`.
+**Phase 8 — Legal/trust UI + compliance** (`docs/07-implementation-plan.md`)
+
+- [x] Disclaimer on every page and RERA/verified-developer-listing badges
+      were already in place from Phase 5; this phase added the remaining
+      `docs/06` capabilities:
+- [x] Takedown/dispute fast path (`docs/06` point 4):
+      `POST /projects/{id}/dispute` (any authenticated user — a dispute
+      is "take this down", distinct from the ownership-claim flow, which
+      is "give it to me") routes to a priority-ordered admin queue
+      (`GET /admin/disputes/pending`, `POST /admin/disputes/{id}/resolve`,
+      optionally suspending the project in the same action). Also added
+      `POST /admin/projects/{id}/suspend` directly — `status='suspended'`
+      already existed in the schema but was never reachable from the API.
+- [x] DPDP data export/delete (`docs/06`'s Data protection section):
+      `POST /account/data-request` + admin fulfillment
+      (`GET /admin/data-requests/pending`,
+      `POST /admin/data-requests/{id}/fulfill`). Deletion **anonymizes**
+      the user row (name/phone/email cleared) rather than removing it —
+      verified that a user's existing bids and the project's
+      `cached_total_paise`/`bid_count` are completely untouched by
+      fulfilling a delete request, since `docs/06` requires retaining
+      payment/ledger records even after deletion.
+- [x] Frontend: a `/privacy` page (plain-language, factual — explicitly
+      flagged as not a substitute for a lawyer-reviewed policy) and a
+      `/terms` page that is deliberately just a placeholder naming the
+      sections `docs/06` says must be drafted with counsel, including the
+      wagering-vs-promotional-service question flagged there. A dispute
+      form on the project detail page, and data export/delete buttons on
+      the dashboard.
+- [x] Verified against real Postgres: a filed dispute appears in the
+      priority admin queue and resolving it can suspend the project;
+      admin-initiated suspension works directly; a delete request
+      anonymizes the account while leaving the ledger (existing bids,
+      project totals) completely intact.
+- **The actual exit criterion is external and unmet, by definition**:
+  `docs/07` states it as "legal review sign-off obtained (external — not
+  a code deliverable, but block public launch on it)." No test in this
+  repo can satisfy that. Everything above is the engineering scaffolding
+  the eventual legal review needs to have in place — it is not a
+  substitute for the review itself, which requires an actual
+  India-qualified lawyer per `docs/06`'s opening line.
+
+Everything after Phase 8 (launch readiness) is **not yet built** — follow
+the phased plan and do not skip ahead, per the non-negotiables in
+`docs/00-overview.md`.
 
 ## Local development
 

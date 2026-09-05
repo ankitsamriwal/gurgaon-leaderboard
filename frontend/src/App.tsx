@@ -5,6 +5,8 @@ import { SubmitPage } from "./pages/SubmitPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AdminPage } from "./pages/AdminPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
+import { TermsPage } from "./pages/TermsPage";
 import { useAuthStore } from "./store/auth";
 
 export function App() {
@@ -35,8 +37,15 @@ export function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
         </Routes>
       </main>
+
+      <footer className="site-footer">
+        <Link to="/privacy">Privacy</Link>
+        <Link to="/terms">Terms</Link>
+      </footer>
     </div>
   );
 }
