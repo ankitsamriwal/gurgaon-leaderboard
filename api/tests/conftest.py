@@ -1,4 +1,10 @@
 import asyncio
+import os
+
+# The suite drives /internal/test/* seed/settle/promote endpoints,
+# which are off by default (see app/config.py). Enable them for the
+# test app before app.main (and its Settings) is imported.
+os.environ.setdefault("ENABLE_TEST_ENDPOINTS", "true")
 
 import pytest
 import pytest_asyncio

@@ -18,6 +18,13 @@ class Settings(BaseSettings):
 
     turnstile_secret_key: str = ""
 
+    # Test-only backdoor endpoints (/internal/test/*): seed users and
+    # projects, settle bids without payment, promote any account to admin.
+    # OFF by default so a deployed instance is safe even with
+    # ENVIRONMENT=staging; dev/test enables it explicitly via
+    # ENABLE_TEST_ENDPOINTS=true.
+    enable_test_endpoints: bool = False
+
     # Comma-separated list. Defaults to the Vite dev server origin so
     # `npm run dev` works against a local API out of the box; production
     # must set this to the real deployed frontend origin(s).

@@ -49,12 +49,20 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(ws_router)
 
+    # Mock-payment endpoint powers the public demo's bid flow whenever real
+    # Razorpay keys are not configured (staging/demo builds).
     if not settings.is_production:
-        from app.routers.internal import router as internal_router
         from app.routers.payments import mock_router as payments_mock_router
 
-        app.include_router(internal_router)
         app.include_router(payments_mock_router)
+
+    # /internal/test/* backdoors (seed users/projects, settle bids,
+    # promote-role) exist only for local dev and the test suite. They are
+    # never registered on a deployed instance unless explicitly enabled.
+    if settings.enable_test_endpoints and not settings.is_production:
+        from app.routers.internal import router as internal_router
+
+        app.include_router(internal_router)
 
     return app
 

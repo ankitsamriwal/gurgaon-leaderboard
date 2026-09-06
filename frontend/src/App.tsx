@@ -9,9 +9,21 @@ import { PrivacyPage } from "./pages/PrivacyPage";
 import { TermsPage } from "./pages/TermsPage";
 import { useAuthStore } from "./store/auth";
 
+function roleFromToken(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return typeof payload.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const clearSession = useAuthStore((s) => s.clearSession);
+  const isAdmin = roleFromToken(accessToken) === "admin";
 
   return (
     <div className="app">
@@ -21,7 +33,7 @@ export function App() {
         {user ? (
           <>
             <Link to="/dashboard">Dashboard</Link>
-            <Link to="/admin">Admin</Link>
+            {isAdmin && <Link to="/admin">Admin</Link>}
             <button onClick={clearSession}>Log out</button>
           </>
         ) : (

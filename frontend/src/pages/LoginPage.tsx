@@ -75,7 +75,7 @@ export function LoginPage() {
             onChange={(e) => setOtp(e.target.value)}
             required
           />
-          {debugOtp && <p className="dev-hint">Dev build — code is {debugOtp}</p>}
+          {debugOtp && <p className="dev-hint">Demo mode - your code is {debugOtp} (no real SMS is sent)</p>}
           <button type="submit">Verify</button>
         </form>
       )}

@@ -79,7 +79,7 @@ export function ProjectDetailPage() {
         {data.bids.items.map((bid) => (
           <li key={bid.id}>
             {formatPaise(bid.amount_paise)} — {bid.bidder_label ?? "anonymous"} —{" "}
-            {new Date(bid.created_at).toLocaleString()}
+            {new Date(bid.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
           </li>
         ))}
         {data.bids.items.length === 0 && <li>No bids yet.</li>}
