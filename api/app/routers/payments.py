@@ -18,6 +18,17 @@ from app.services.razorpay_client import RazorpayClient, get_razorpay_client
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
+# Bidding starts from Rs 500 - the absolute floor for any bid, real or mock.
+MIN_BID_PAISE = 50_000
+
+
+def _check_min_bid(amount_paise: int):
+    if amount_paise < MIN_BID_PAISE:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "AMOUNT_TOO_LOW", "message": "Minimum bid is Rs 500."}},
+        )
+
 
 class PaymentsConfigResponse(BaseModel):
     razorpay_key_id: str
@@ -68,11 +79,7 @@ async def create_payment_intent(
     client_ip = request.client.host if request.client else "unknown"
     await rate_limit(f"payments-intent-ip:{client_ip}", limit=50, window_seconds=3600)
 
-    if body.amount_paise <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"code": "AMOUNT_TOO_LOW", "message": "amount_paise must be positive"}},
-        )
+    _check_min_bid(body.amount_paise)
 
     existing = (
         await db.execute(select(PaymentIntent).where(PaymentIntent.idempotency_key == body.idempotency_key))
@@ -145,11 +152,7 @@ async def mock_payment(
     the exact environment this endpoint exists for. It gets-or-creates its
     own payment_intent via accept_bid(), same as the real webhook does.
     """
-    if body.amount_paise <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"code": "AMOUNT_TOO_LOW", "message": "amount_paise must be positive"}},
-        )
+    _check_min_bid(body.amount_paise)
 
     project = await db.get(Project, body.project_id)
     if project is None or project.status != "live":

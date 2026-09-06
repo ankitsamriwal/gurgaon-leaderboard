@@ -49,6 +49,11 @@ class Project(Base):
     rera_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     rera_verified_at: Mapped[object | None] = mapped_column(TIMESTAMP(timezone=True))
     project_url: Mapped[str | None] = mapped_column(Text)
+    logo_url: Mapped[str | None] = mapped_column(Text)
+    property_type: Mapped[str | None] = mapped_column(Text)
+    unit_sizes: Mapped[str | None] = mapped_column(Text)
+    amenities: Mapped[str | None] = mapped_column(Text)
+    is_sample: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     submitted_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     claimed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending_review")
@@ -61,6 +66,10 @@ class Project(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending_review','live','rejected','suspended')", name="ck_projects_status"
+        ),
+        CheckConstraint(
+            "property_type IS NULL OR property_type IN ('apartment','villa','townhouse')",
+            name="ck_projects_property_type",
         ),
         Index("ix_projects_status_total", "status", cached_total_paise.desc()),
     )

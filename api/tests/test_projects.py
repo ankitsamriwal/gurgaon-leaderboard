@@ -1,5 +1,7 @@
-"""Phase 4 exit criterion (docs/07-implementation-plan.md): a submitted
-project never appears on the public leaderboard until an admin approves it.
+"""Listing flow: a submission through the standardized template goes
+straight onto the public leaderboard with its Rs 500 mock opening bid
+("bidding starts from Rs 500"); admins moderate after the fact via
+suspend/reject.
 """
 
 import uuid
@@ -32,7 +34,7 @@ async def _make_admin(client: AsyncClient, phone: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_submitted_project_is_pending_and_not_on_leaderboard(client: AsyncClient):
+async def test_submitted_project_goes_live_with_opening_bid_and_template(client: AsyncClient):
     token, _ = await _signed_up_user(client, "+919999922001")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -43,21 +45,52 @@ async def test_submitted_project_is_pending_and_not_on_leaderboard(client: Async
             "developer_name": "Test Developer",
             "locality": "Sector 50",
             "rera_number": VALID_RERA,
+            "logo_url": "https://example.com/logo.png",
+            "property_type": "apartment",
+            "unit_sizes": "3 & 4 BHK",
+            "amenities": "Clubhouse, Swimming pool",
         },
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "pending_review"
+    assert resp.json()["status"] == "live"
     project_id = resp.json()["project_id"]
 
+    # Straight onto the public leaderboard at exactly Rs 500 - the mock
+    # opening bid every entry starts with.
     resp = await client.get("/projects/leaderboard")
-    assert all(r["project_id"] != project_id for r in resp.json()["rankings"])
+    row = next(r for r in resp.json()["rankings"] if r["project_id"] == project_id)
+    assert row["total_paise"] == 50000
+    assert row["bid_count"] == 1
+    assert row["property_type"] == "apartment"
+    assert row["unit_sizes"] == "3 & 4 BHK"
+    assert row["amenities"] == "Clubhouse, Swimming pool"
+    assert row["logo_url"] == "https://example.com/logo.png"
+    assert row["is_sample"] is False
 
-    # Not even directly fetchable while pending — the moderation gate must
-    # not be bypassable by knowing the id.
     resp = await client.get(f"/projects/{project_id}")
-    assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "PROJECT_NOT_LIVE"
+    assert resp.status_code == 200
+    assert resp.json()["property_type"] == "apartment"
+
+
+@pytest.mark.asyncio
+async def test_invalid_property_type_is_rejected(client: AsyncClient):
+    token, _ = await _signed_up_user(client, "+919999922012")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.post(
+        "/projects",
+        json={
+            "name": "Test Villas",
+            "developer_name": "Test Developer",
+            "locality": "Sector 51",
+            "rera_number": VALID_RERA,
+            "property_type": "castle",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "PROPERTY_TYPE_INVALID"
 
 
 @pytest.mark.asyncio
@@ -116,7 +149,7 @@ async def test_project_submission_is_rate_limited(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_admin_approval_makes_project_public_on_the_leaderboard(client: AsyncClient):
+async def test_admin_suspend_pulls_project_off_the_leaderboard(client: AsyncClient):
     submitter_token, _ = await _signed_up_user(client, "+919999922005")
     admin_token = await _make_admin(client, "+919999922006")
 
@@ -127,22 +160,25 @@ async def test_admin_approval_makes_project_public_on_the_leaderboard(client: As
     )
     project_id = resp.json()["project_id"]
 
-    admin_headers = {"Authorization": f"Bearer {admin_token}"}
-
-    resp = await client.get("/admin/projects/pending", headers=admin_headers)
-    assert resp.status_code == 200
-    assert any(p["id"] == project_id for p in resp.json()["projects"])
-
-    resp = await client.post(f"/admin/projects/{project_id}/approve", headers=admin_headers)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "live"
-
+    # Live immediately...
     resp = await client.get("/projects/leaderboard")
     assert any(r["project_id"] == project_id for r in resp.json()["rankings"])
 
-    resp = await client.get(f"/projects/{project_id}")
+    # ...until an admin suspends it.
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = await client.post(
+        f"/admin/projects/{project_id}/suspend",
+        json={"reason": "moderation spot-check"},
+        headers=admin_headers,
+    )
     assert resp.status_code == 200
-    assert resp.json()["name"] == "Skyline"
+    assert resp.json()["status"] == "suspended"
+
+    resp = await client.get("/projects/leaderboard")
+    assert all(r["project_id"] != project_id for r in resp.json()["rankings"])
+
+    resp = await client.get(f"/projects/{project_id}")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

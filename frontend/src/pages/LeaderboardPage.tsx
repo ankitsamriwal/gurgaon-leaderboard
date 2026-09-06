@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useLeaderboard } from "../hooks/useLeaderboard";
 import { LeaderboardTable } from "../components/LeaderboardTable";
 import { Disclaimer } from "../components/Disclaimer";
+import { useAuthStore } from "../store/auth";
 
 function leaderClock(iso: string): string {
   const ms = Math.max(0, Date.now() - new Date(iso).getTime());
@@ -15,6 +17,7 @@ function leaderClock(iso: string): string {
 
 export function LeaderboardPage() {
   const { data, isLoading, isError, justChanged } = useLeaderboard();
+  const user = useAuthStore((s) => s.user);
   const [, setTick] = useState(0);
 
   // 1s heartbeat so the leader-since clock visibly ticks (live feel).
@@ -35,6 +38,13 @@ export function LeaderboardPage() {
           project's total - outbid the leader's cumulative total by just ₹1 and the
           crown moves. Rank is the bid, nothing else.
         </p>
+        <Link to={user ? "/submit" : "/login?next=/submit"} className="cta-start">
+          <span className="cta-rupee" aria-hidden="true">₹</span>
+          <span className="cta-start-text">
+            <b>Bidding starts from ₹500</b>
+            <small>List your project on the board - mock payment, no real money</small>
+          </span>
+        </Link>
         <div className="stat-line">
           <span>
             <span className="live-dot">●</span> <b>Live</b> - updates the second a bid lands

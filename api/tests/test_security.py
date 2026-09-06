@@ -92,14 +92,14 @@ async def test_payments_intent_is_rate_limited_per_user(client: AsyncClient):
         for i in range(20):
             resp = await client.post(
                 "/payments/intent",
-                json={"project_id": str(project_id), "amount_paise": 1000, "idempotency_key": f"rl-{i}"},
+                json={"project_id": str(project_id), "amount_paise": 50000, "idempotency_key": f"rl-{i}"},
                 headers=headers,
             )
             assert resp.status_code == 201, resp.text
 
         resp = await client.post(
             "/payments/intent",
-            json={"project_id": str(project_id), "amount_paise": 1000, "idempotency_key": "rl-final"},
+            json={"project_id": str(project_id), "amount_paise": 50000, "idempotency_key": "rl-final"},
             headers=headers,
         )
         assert resp.status_code == 429

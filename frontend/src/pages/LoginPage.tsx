@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch, ApiRequestError } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const next = new URLSearchParams(location.search).get("next") || "/";
   const setSession = useAuthStore((s) => s.setSession);
   const [phone, setPhone] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function LoginPage() {
         body: JSON.stringify({ request_id: requestId, otp }),
       });
       setSession({ accessToken: resp.access_token, refreshToken: resp.refresh_token, user: resp.user });
-      navigate("/");
+      navigate(next);
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Could not verify that code.");
     }

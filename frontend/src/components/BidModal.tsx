@@ -2,6 +2,9 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiRequestError, formatPaise } from "../lib/api";
 
+// Bidding starts from Rs 500 - matches the server-side floor.
+const MIN_BID_PAISE = 50_000;
+
 declare global {
   interface Window {
     Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
@@ -39,7 +42,7 @@ export function BidModal({
 }) {
   const queryClient = useQueryClient();
   const [amountRupees, setAmountRupees] = useState(
-    minToTakeLeadPaise ? Math.ceil(minToTakeLeadPaise / 100).toString() : "",
+    Math.ceil(Math.max(minToTakeLeadPaise ?? 0, MIN_BID_PAISE) / 100).toString(),
   );
   const [status, setStatus] = useState<"idle" | "processing" | "confirming" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -66,9 +69,9 @@ export function BidModal({
     setErrorMessage(null);
 
     const amountPaise = Math.round(parseFloat(amountRupees) * 100);
-    if (!Number.isFinite(amountPaise) || amountPaise <= 0) {
+    if (!Number.isFinite(amountPaise) || amountPaise < MIN_BID_PAISE) {
       setStatus("error");
-      setErrorMessage("Enter a valid amount.");
+      setErrorMessage("Minimum bid is ₹500.");
       return;
     }
 
@@ -113,7 +116,7 @@ export function BidModal({
         if (err.code === "RATE_LIMITED") {
           setErrorMessage("Too many attempts — try again in a while.");
         } else if (err.code === "AMOUNT_TOO_LOW") {
-          setErrorMessage("That amount is too low.");
+          setErrorMessage("Minimum bid is ₹500.");
         } else if (err.code === "PROJECT_NOT_LIVE") {
           setErrorMessage("This project is no longer accepting bids.");
         } else {
@@ -143,7 +146,7 @@ export function BidModal({
               id="bid-amount"
               type="number"
               inputMode="decimal"
-              min={1}
+              min={500}
               step="1"
               value={amountRupees}
               onChange={(e) => setAmountRupees(e.target.value)}

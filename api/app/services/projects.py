@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Bid, LeadershipLog, Project
 from app.redis_client import redis_client
+from app.services.bids import accept_bid
 from app.validators import is_valid_rera_number_format
+
+# Every new project enters the board with a standard mock opening bid -
+# "bidding starts from Rs 500" (demo mode, no real money moves).
+OPENING_BID_PAISE = 50_000
 
 LEADERBOARD_CACHE_KEY = "leaderboard:v1"
 LEADERBOARD_CACHE_TTL_SECONDS = 7
@@ -29,26 +34,52 @@ async def create_project(
     locality: str,
     rera_number: str,
     project_url: str | None,
+    logo_url: str | None = None,
+    property_type: str | None = None,
+    unit_sizes: str | None = None,
+    amenities: str | None = None,
 ) -> Project:
     if not is_valid_rera_number_format(rera_number):
         _error(400, "RERA_INVALID_FORMAT", "rera_number does not match the expected Haryana RERA format")
+    if property_type is not None and property_type not in ("apartment", "villa", "townhouse"):
+        _error(400, "PROPERTY_TYPE_INVALID", "property_type must be apartment, villa or townhouse")
 
+    # Submissions go straight to the board in this demo build: the
+    # standardized template plus the Rs 500 mock opening bid are the entry
+    # ticket. Admins can still suspend/reject afterwards (app/routers/admin.py).
     project = Project(
         name=name,
         developer_name=developer_name,
         locality=locality,
         rera_number=rera_number,
         project_url=project_url,
+        logo_url=logo_url,
+        property_type=property_type,
+        unit_sizes=unit_sizes,
+        amenities=amenities,
         submitted_by=submitted_by,
-        status="pending_review",
+        status="live",
     )
     session.add(project)
     try:
-        await session.commit()
+        await session.flush()
     except IntegrityError:
         await session.rollback()
         _error(409, "RERA_DUPLICATE", "a non-rejected project with this rera_number already exists")
 
+    # The opening bid: every entry starts on the board at exactly Rs 500,
+    # flagged mock like every other demo payment. accept_bid owns the
+    # payment_intent + ledger insert and commits the transaction.
+    await accept_bid(
+        session,
+        project_id=project.id,
+        user_id=submitted_by,
+        amount_paise=OPENING_BID_PAISE,
+        idempotency_key=f"opening-{project.id}",
+        razorpay_payment_id_for=lambda i: f"mock_{i.id}",
+        bidder_label="Opening bid",
+        is_mock=True,
+    )
     await session.refresh(project)
     return project
 
@@ -99,6 +130,11 @@ async def _compute_leaderboard(session: AsyncSession) -> dict:
             "name": p.name,
             "developer_name": p.developer_name,
             "locality": p.locality,
+            "logo_url": p.logo_url,
+            "property_type": p.property_type,
+            "unit_sizes": p.unit_sizes,
+            "amenities": p.amenities,
+            "is_sample": p.is_sample,
             "total_paise": p.cached_total_paise,
             "bid_count": p.total_bid_count,
         }
@@ -162,6 +198,11 @@ async def get_project_detail(session: AsyncSession, *, project_id: uuid.UUID, pa
         "rera_number": project.rera_number,
         "rera_verified": project.rera_verified,
         "project_url": project.project_url,
+        "logo_url": project.logo_url,
+        "property_type": project.property_type,
+        "unit_sizes": project.unit_sizes,
+        "amenities": project.amenities,
+        "is_sample": project.is_sample,
         "is_verified_developer_listing": project.claimed_by is not None,
         "total_paise": project.cached_total_paise,
         "bid_count": project.total_bid_count,

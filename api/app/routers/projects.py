@@ -11,18 +11,28 @@ from app.deps import CurrentUser, get_current_user
 from app.models import Project, ProjectClaim, ProjectDispute
 from app.rate_limit import rate_limit
 from app.services.captcha_provider import get_captcha_provider
-from app.services.projects import create_project, get_leaderboard, get_project_detail
+from app.services.projects import (
+    create_project,
+    get_leaderboard,
+    get_project_detail,
+    publish_leaderboard_update,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 class CreateProjectBody(BaseModel):
+    # The standardized listing template every board entry follows:
+    # logo, name, location, property type + unit sizes, amenities.
     name: str
     developer_name: str
     locality: str
     rera_number: str
     project_url: str | None = None
-    opening_bid_paise: int | None = None  # accepted per docs/02; no separate handling needed yet
+    logo_url: str | None = None
+    property_type: str | None = None  # apartment | villa | townhouse
+    unit_sizes: str | None = None
+    amenities: str | None = None
     captcha_token: str | None = None
 
 
@@ -52,7 +62,12 @@ async def submit_project(
         locality=body.locality,
         rera_number=body.rera_number,
         project_url=body.project_url,
+        logo_url=body.logo_url,
+        property_type=body.property_type,
+        unit_sizes=body.unit_sizes,
+        amenities=body.amenities,
     )
+    await publish_leaderboard_update(db)
     return CreateProjectResponse(project_id=project.id, status=project.status)
 
 

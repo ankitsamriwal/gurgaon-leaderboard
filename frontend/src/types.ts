@@ -4,6 +4,11 @@ export interface LeaderboardEntry {
   name: string;
   developer_name: string;
   locality: string;
+  logo_url: string | null;
+  property_type: string | null;
+  unit_sizes: string | null;
+  amenities: string | null;
+  is_sample: boolean;
   total_paise: number;
   bid_count: number;
 }
@@ -29,6 +34,11 @@ export interface ProjectDetail {
   rera_number: string;
   rera_verified: boolean;
   project_url: string | null;
+  logo_url: string | null;
+  property_type: string | null;
+  unit_sizes: string | null;
+  amenities: string | null;
+  is_sample: boolean;
   is_verified_developer_listing: boolean;
   total_paise: number;
   bid_count: number;
